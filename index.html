@@ -2,12 +2,595 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>My Simple Webpage</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise IT Asset Tracking System</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- SheetJS (xlsx) for Excel Processing -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .table-container {
+            max-height: calc(100vh - 280px);
+            overflow-y: auto;
+            overflow-x: auto;
+        }
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background-color: #ffd700 !important;
+            color: #000000;
+            box-shadow: inset 0 -2px 0 rgba(0,0,0,0.15);
+        }
+        tr:nth-child(even) { background-color: #fafafa; }
+        tr:hover { background-color: #f1f5f9; }
+    </style>
 </head>
-<body>
+<body class="bg-slate-100 text-slate-800 font-sans min-h-screen flex flex-col">
 
-    <h1>https://drive.google.com/drive/folders/1gjZaDEffPGg7-qVgY9jyc65uHXxUoY-P?usp=sharing</h1>
-    
+    <!-- Top Navbar -->
+    <header class="bg-slate-900 text-white shadow-md sticky top-0 z-30">
+        <div class="max-w-[100rem] mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="bg-yellow-400 text-slate-900 p-2 rounded-lg font-bold shadow">
+                    <i class="fa-solid fa-laptop text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-tight">IT Asset Tracking System</h1>
+                    <p class="text-xs text-slate-400 flex items-center gap-1.5" id="syncStatus">
+                        <span class="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span> 
+                        Checking GitHub Token...
+                    </p>
+                </div>
+            </div>
 
+            <!-- Action Buttons -->
+            <div class="flex flex-wrap items-center gap-2">
+                <button onclick="openTokenModal()" class="bg-slate-800 hover:bg-slate-700 text-yellow-400 border border-yellow-400/40 px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 cursor-pointer" title="Configure GitHub Token">
+                    <i class="fa-solid fa-key"></i> Setup Token
+                </button>
+                <button onclick="openModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium shadow transition flex items-center gap-2 cursor-pointer">
+                    <i class="fa-solid fa-plus"></i> Add Asset
+                </button>
+                <button onclick="fetchFromGitHub(true)" class="bg-sky-600 hover:bg-sky-700 text-white px-3 py-2 rounded-lg text-sm font-medium shadow transition flex items-center gap-2 cursor-pointer" title="Reload from GitHub">
+                    <i class="fa-solid fa-arrows-rotate"></i> Sync
+                </button>
+                <label class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium shadow transition cursor-pointer flex items-center gap-2">
+                    <i class="fa-solid fa-file-excel"></i> Import Excel
+                    <input type="file" id="excelFileInput" accept=".xlsx, .xls, .csv" class="hidden" onchange="handleExcelImport(event)">
+                </label>
+                <button onclick="exportToExcel()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium shadow transition flex items-center gap-2 cursor-pointer">
+                    <i class="fa-solid fa-download"></i> Export Excel
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-[100rem] w-full mx-auto p-4 flex flex-col gap-4">
+
+        <!-- Info Notification Bar -->
+        <div id="statusBanner" class="bg-indigo-50 border border-indigo-200 text-indigo-900 px-4 py-2.5 rounded-xl shadow-xs flex items-center justify-between gap-3 text-xs sm:text-sm">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-cloud-arrow-up text-indigo-600 text-base"></i>
+                <span id="bannerMessage"><strong>GitHub Auto-Sync Active:</strong> Click <strong>Setup Token</strong> to enter your Personal Access Token for auto-saving directly to GitHub!</span>
+            </div>
+            <button onclick="this.parentElement.remove()" class="text-indigo-700 hover:text-indigo-900 font-bold px-2"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                <div><p class="text-xs text-slate-500 font-medium uppercase">Total Assets</p><h3 id="statTotal" class="text-xl font-bold text-slate-900">0</h3></div>
+                <div class="bg-blue-50 text-blue-600 p-2.5 rounded-lg"><i class="fa-solid fa-boxes-stacked"></i></div>
+            </div>
+            <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                <div><p class="text-xs text-slate-500 font-medium uppercase">Working</p><h3 id="statWorking" class="text-xl font-bold text-emerald-600">0</h3></div>
+                <div class="bg-emerald-50 text-emerald-600 p-2.5 rounded-lg"><i class="fa-solid fa-circle-check"></i></div>
+            </div>
+            <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                <div><p class="text-xs text-slate-500 font-medium uppercase">Available</p><h3 id="statAvailable" class="text-xl font-bold text-indigo-600">0</h3></div>
+                <div class="bg-indigo-50 text-indigo-600 p-2.5 rounded-lg"><i class="fa-solid fa-warehouse"></i></div>
+            </div>
+            <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                <div><p class="text-xs text-slate-500 font-medium uppercase">Not Working</p><h3 id="statNotWorking" class="text-xl font-bold text-rose-600">0</h3></div>
+                <div class="bg-rose-50 text-rose-600 p-2.5 rounded-lg"><i class="fa-solid fa-triangle-exclamation"></i></div>
+            </div>
+            <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                <div><p class="text-xs text-slate-500 font-medium uppercase">Replaced</p><h3 id="statReplaced" class="text-xl font-bold text-purple-600">0</h3></div>
+                <div class="bg-purple-50 text-purple-600 p-2.5 rounded-lg"><i class="fa-solid fa-rotate"></i></div>
+            </div>
+            <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                <div><p class="text-xs text-slate-500 font-medium uppercase">Scrap / Sold</p><h3 id="statScrap" class="text-xl font-bold text-amber-600">0</h3></div>
+                <div class="bg-amber-50 text-amber-600 p-2.5 rounded-lg"><i class="fa-solid fa-recycle"></i></div>
+            </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-3 flex-1">
+                <div class="relative min-w-[240px] flex-1 sm:flex-none">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400"><i class="fa-solid fa-magnifying-glass"></i></span>
+                    <input type="text" id="searchInput" oninput="filterAssets()" placeholder="Search System ID, Serial, Emp Name..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <select id="filterCategory" onchange="filterAssets()" class="py-2 px-3 bg-slate-50 border border-slate-300 rounded-lg text-sm"><option value="">All Categories</option></select>
+                <select id="filterStatus" onchange="filterAssets()" class="py-2 px-3 bg-slate-50 border border-slate-300 rounded-lg text-sm">
+                    <option value="">All Statuses</option>
+                    <option value="Working">Working</option>
+                    <option value="Available">Available</option>
+                    <option value="Not Working">Not Working</option>
+                    <option value="Replaced">Replaced</option>
+                    <option value="Sold Out - Scrap">Sold Out - Scrap</option>
+                    <option value="Repair Required">Repair Required</option>
+                    <option value="Not Yet Assigned">Not Yet Assigned</option>
+                    <option value="Legal">Legal</option>
+                </select>
+            </div>
+            <div class="flex items-center gap-3">
+                <span id="recordCount" class="text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-md">Showing 0 entries</span>
+                <button onclick="resetFilters()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg font-medium cursor-pointer"><i class="fa-solid fa-rotate-right"></i> Reset</button>
+            </div>
+        </div>
+
+        <!-- Table Container -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex-1 flex flex-col">
+            <div class="table-container flex-1">
+                <table id="assetTable" class="w-full border-collapse text-left text-xs whitespace-nowrap">
+                    <thead>
+                        <tr>
+                            <th class="p-2.5 font-bold border-b border-slate-300">Sr. No</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300">System ID</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300">Category</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300">Title</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300">Serial Number</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300">Emp Name</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300">Asset Handover Form</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300">Product Acquisition Number</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300">Invoice Number</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300">Status</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300">Replaced Asset Info</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300">Comment</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300">Date of Purchase</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300 text-center sticky right-0 bg-[#ffd700] z-20 shadow-[-2px_0_5px_rgba(0,0,0,0.05)]">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assetTableBody" class="divide-y divide-slate-200 text-slate-700"></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Token Modal -->
+    <div id="tokenModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-slate-900 text-base"><i class="fa-solid fa-key text-yellow-500 mr-2"></i> GitHub Access Token</h3>
+                <button onclick="closeTokenModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <p class="text-xs text-slate-600 mb-3">Paste your GitHub Personal Access Token to enable auto-saving directly to repository file <code>IT_Asset_Inventory.xlsx</code>.</p>
+            <input type="password" id="ghTokenInput" placeholder="github_pat_..." class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono mb-4 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            <div class="flex justify-end gap-2">
+                <button onclick="closeTokenModal()" class="px-4 py-2 bg-slate-200 text-slate-700 text-xs rounded-lg">Cancel</button>
+                <button onclick="saveToken()" class="px-4 py-2 bg-indigo-600 text-white text-xs rounded-lg">Save Token</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Asset Add/Edit Modal -->
+    <div id="assetModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div class="px-6 py-4 bg-slate-900 text-white flex justify-between items-center">
+                <h3 class="font-bold text-base flex items-center gap-2"><i class="fa-solid fa-laptop-code text-yellow-400"></i> <span id="modalTitleText">Add New Asset</span></h3>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            
+            <form id="assetForm" onsubmit="saveAsset(event)" class="p-6 overflow-y-auto flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <input type="hidden" id="editIndex">
+                <div><label class="block text-xs font-semibold text-slate-600 mb-1">System ID *</label><input type="text" id="formSystemID" required placeholder="e.g. PRPL/MOB/2917" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
+                <div><label class="block text-xs font-semibold text-slate-600 mb-1">Category</label><input type="text" id="formCategory" placeholder="e.g. Mobile, Laptop" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
+                <div class="sm:col-span-2"><label class="block text-xs font-semibold text-slate-600 mb-1">Title / Model Name *</label><input type="text" id="formTitle" required placeholder="e.g. PRPL 01 APPLE IPHONE MOBILE" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
+                <div><label class="block text-xs font-semibold text-slate-600 mb-1">Serial Number</label><input type="text" id="formSerialNumber" placeholder="e.g. SG5YV7HXMX9" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
+                <div><label class="block text-xs font-semibold text-slate-600 mb-1">Employee Name / Location</label><input type="text" id="formEmpName" placeholder="e.g. Durgesh Gopal Ozarkar" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
+                <div><label class="block text-xs font-semibold text-slate-600 mb-1">Asset Handover Form</label><input type="text" id="formHandover" placeholder="e.g. Available, Signed" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
+                <div><label class="block text-xs font-semibold text-slate-600 mb-1">Product Acquisition Number</label><input type="text" id="formAcquisition" placeholder="e.g. PRPL/ACQ/24112023/00347" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
+                <div><label class="block text-xs font-semibold text-slate-600 mb-1">Invoice Number</label><input type="text" id="formInvoice" placeholder="e.g. PATNI23-24/27376" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Status</label>
+                    <select id="formStatus" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm">
+                        <option value="Working">Working</option>
+                        <option value="Available">Available</option>
+                        <option value="Not Working">Not Working</option>
+                        <option value="Replaced">Replaced</option>
+                        <option value="Sold Out - Scrap">Sold Out - Scrap</option>
+                        <option value="Repair Required">Repair Required</option>
+                        <option value="Not Yet Assigned">Not Yet Assigned</option>
+                        <option value="Legal">Legal</option>
+                    </select>
+                </div>
+                <div class="sm:col-span-2"><label class="block text-xs font-semibold text-slate-600 mb-1">Replaced Asset Info</label><input type="text" id="formReplacedInfo" placeholder="e.g. Replaced by PRPL/MOB/3650" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
+                <div><label class="block text-xs font-semibold text-slate-600 mb-1">Comment</label><input type="text" id="formComment" placeholder="e.g. #N/A or Battery issue" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
+                <div><label class="block text-xs font-semibold text-slate-600 mb-1">Date of Purchase</label><input type="text" id="formDatePurchase" placeholder="e.g. 24-Nov-23" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
+
+                <div class="sm:col-span-2 pt-4 flex justify-end gap-3 border-t border-slate-200 mt-2">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-200 text-slate-700 text-sm font-medium rounded-lg">Cancel</button>
+                    <button type="submit" class="px-5 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg shadow">Save & Push to GitHub</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Script -->
+    <script>
+        let assets = [];
+        let currentFileSha = null;
+        
+        // Repo specs
+        const REPO_OWNER = "actpistol";
+        const REPO_NAME = "lexus.github.io";
+        const FILE_PATH = "IT_Asset_Inventory.xlsx";
+        const GITHUB_API_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FILE_PATH}`;
+
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchFromGitHub();
+        });
+
+        function getSavedToken() {
+            return localStorage.getItem('gh_pat_token') || '';
+        }
+
+        function openTokenModal() {
+            document.getElementById('ghTokenInput').value = getSavedToken();
+            document.getElementById('tokenModal').classList.remove('hidden');
+        }
+
+        function closeTokenModal() {
+            document.getElementById('tokenModal').classList.add('hidden');
+        }
+
+        function saveToken() {
+            const token = document.getElementById('ghTokenInput').value.trim();
+            localStorage.setItem('gh_pat_token', token);
+            closeTokenModal();
+            fetchFromGitHub(true);
+        }
+
+        // Fetch Excel directly using GitHub API
+        async function fetchFromGitHub(showAlert = false) {
+            const statusEl = document.getElementById('syncStatus');
+            const token = getSavedToken();
+
+            try {
+                if (statusEl) statusEl.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span> Connecting to GitHub API...`;
+                
+                const headers = token ? { 'Authorization': `token ${token}` } : {};
+                const res = await fetch(GITHUB_API_URL + `?t=${Date.now()}`, { headers });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const data = await res.json();
+                currentFileSha = data.sha; // Save SHA required for updates
+
+                // Binary decode base64
+                const binaryString = atob(data.content.replace(/\n/g, ''));
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                const workbook = XLSX.read(bytes, { type: 'array' });
+                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonRows = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+                assets = parseExcelRows(jsonRows);
+                populateCategoryDropdown();
+                filterAssets();
+
+                if (statusEl) statusEl.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span> Synced with GitHub (${assets.length} items)`;
+                if (showAlert) alert(`Successfully fetched ${assets.length} records from GitHub repository!`);
+            } catch (err) {
+                console.warn("GitHub fetch warning:", err);
+                if (statusEl) statusEl.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-rose-400"></span> Read-Only (Token needed to Auto-Save)`;
+                const stored = localStorage.getItem('it_assets_inventory');
+                if (stored) { try { assets = JSON.parse(stored); } catch(e){} }
+                populateCategoryDropdown();
+                filterAssets();
+            }
+        }
+
+        // Auto-commit binary Excel back to GitHub repository
+        async function pushToGitHub() {
+            const token = getSavedToken();
+            if (!token) {
+                alert("GitHub Token missing! Please click 'Setup Token' at the top to configure auto-save.");
+                openTokenModal();
+                return;
+            }
+
+            const statusEl = document.getElementById('syncStatus');
+            if (statusEl) statusEl.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span> Pushing update to GitHub...`;
+
+            try {
+                // Generate Excel binary
+                const exportData = assets.map((item, i) => ({
+                    "Sr. No": i + 1,
+                    "System ID": item.systemID,
+                    "Category": item.category,
+                    "Title": item.title,
+                    "Serial Number": item.serialNumber,
+                    "Emp Name": item.empName,
+                    "Asset Handover Form": item.handover,
+                    "Product Acquisition Number": item.acquisition,
+                    "Invoice Number": item.invoice,
+                    "Status": item.status,
+                    "Replaced Asset Info": item.replacedInfo,
+                    "Comment": item.comment,
+                    "Date of Purchase": item.datePurchase
+                }));
+
+                const worksheet = XLSX.utils.json_to_sheet(exportData);
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, "Asset Inventory");
+                const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'base64' });
+
+                const payload = {
+                    message: "Auto-update IT_Asset_Inventory.xlsx via Web App",
+                    content: wbout,
+                    sha: currentFileSha
+                };
+
+                const res = await fetch(GITHUB_API_URL, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `token ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!res.ok) throw new Error(`API Error ${res.status}`);
+
+                const resData = await res.json();
+                currentFileSha = resData.content.sha;
+
+                if (statusEl) statusEl.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span> Saved to GitHub Repo!`;
+            } catch (err) {
+                console.error("Failed to commit to GitHub:", err);
+                alert("Failed to save directly to GitHub. Please verify your Access Token permissions.");
+            }
+        }
+
+        function parseExcelRows(jsonRows) {
+            return jsonRows.map(row => {
+                const getVal = (keys) => {
+                    for (let k of keys) {
+                        const foundKey = Object.keys(row).find(rk => rk.toLowerCase().trim() === k.toLowerCase());
+                        if (foundKey !== undefined) return row[foundKey];
+                    }
+                    return "";
+                };
+                const rawDate = getVal(["Date of Purchase", "Date of Purcha", "Purchase Date", "Date"]);
+                return {
+                    systemID: String(getVal(["System ID", "SystemID", "ID"])),
+                    category: String(getVal(["Category", "Cat"])),
+                    title: String(getVal(["Title", "Model", "Item Name"])),
+                    serialNumber: String(getVal(["Serial Number", "Serial No", "Serial"])),
+                    empName: String(getVal(["Emp Name", "Employee Name", "User"])),
+                    handover: String(getVal(["Asset Handover Form", "Handover", "Form"])),
+                    acquisition: String(getVal(["Product Acquisition Number", "Acquisition Number", "Acquisition"])),
+                    invoice: String(getVal(["Invoice Number", "Invoice No", "Invoice"])),
+                    status: String(getVal(["Status"])) || "Working",
+                    replacedInfo: String(getVal(["Replaced Asset Info", "Replaced Info", "Replacement"])),
+                    comment: String(getVal(["Comment", "Remarks", "Note"])) || "#N/A",
+                    datePurchase: !isNaN(rawDate) && String(rawDate).trim() !== "" ? excelSerialToDate(rawDate) : String(rawDate)
+                };
+            });
+        }
+
+        function excelSerialToDate(serial) {
+            if (!serial || isNaN(serial)) return serial;
+            const parsedNum = Number(serial);
+            const utcDays = Math.floor(parsedNum - 25569);
+            const dateObj = new Date(utcDays * 86400 * 1000);
+            if (isNaN(dateObj.getTime())) return serial;
+            const day = String(dateObj.getUTCDate()).padStart(2, '0');
+            const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            return `${day}-${months[dateObj.getUTCMonth()]}-${String(dateObj.getUTCFullYear()).slice(-2)}`;
+        }
+
+        function populateCategoryDropdown() {
+            const categories = [...new Set(assets.map(a => a.category).filter(Boolean))].sort();
+            const select = document.getElementById('filterCategory');
+            select.innerHTML = '<option value="">All Categories</option>';
+            categories.forEach(cat => { select.innerHTML += `<option value="${cat}">${cat}</option>`; });
+        }
+
+        function updateStats() {
+            document.getElementById('statTotal').innerText = assets.length;
+            document.getElementById('statWorking').innerText = assets.filter(a => a.status && a.status.toLowerCase() === 'working').length;
+            document.getElementById('statAvailable').innerText = assets.filter(a => a.status && a.status.toLowerCase() === 'available').length;
+            document.getElementById('statNotWorking').innerText = assets.filter(a => a.status && (a.status.toLowerCase() === 'not working' || a.status.toLowerCase() === 'repair required')).length;
+            document.getElementById('statReplaced').innerText = assets.filter(a => a.status && a.status.toLowerCase() === 'replaced').length;
+            document.getElementById('statScrap').innerText = assets.filter(a => a.status && a.status.toLowerCase().includes('scrap')).length;
+        }
+
+        function filterAssets() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const catFilter = document.getElementById('filterCategory').value;
+            const statFilter = document.getElementById('filterStatus').value;
+
+            const filtered = assets.filter((item) => {
+                const matchesSearch = Object.values(item).some(val => String(val).toLowerCase().includes(query));
+                const matchesCat = !catFilter || item.category === catFilter;
+                const matchesStat = !statFilter || item.status === statFilter;
+                return matchesSearch && matchesCat && matchesStat;
+            });
+            renderTable(filtered);
+            updateStats();
+        }
+
+        function resetFilters() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('filterCategory').value = '';
+            document.getElementById('filterStatus').value = '';
+            filterAssets();
+        }
+
+        function renderTable(dataToRender) {
+            const tbody = document.getElementById('assetTableBody');
+            tbody.innerHTML = '';
+            if (dataToRender.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-slate-400">No matching assets found.</td></tr>`;
+                document.getElementById('recordCount').innerText = `Showing 0 entries`;
+                return;
+            }
+
+            document.getElementById('recordCount').innerText = `Showing ${dataToRender.length} of ${assets.length} entries`;
+
+            dataToRender.forEach((item, idx) => {
+                const originalIndex = assets.indexOf(item);
+                let statusClass = "bg-slate-100 text-slate-700";
+                const st = (item.status || "").toLowerCase();
+                if (st === 'working') statusClass = "bg-emerald-100 text-emerald-800";
+                else if (st === 'available') statusClass = "bg-indigo-100 text-indigo-800";
+                else if (st.includes('not working') || st.includes('repair')) statusClass = "bg-rose-100 text-rose-800";
+                else if (st === 'replaced') statusClass = "bg-purple-100 text-purple-800";
+                else if (st.includes('scrap') || st.includes('sold')) statusClass = "bg-amber-100 text-amber-800";
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="p-2.5 font-medium text-slate-500">${idx + 1}</td>
+                    <td class="p-2.5 font-semibold text-slate-900">${escapeHtml(item.systemID)}</td>
+                    <td class="p-2.5">${escapeHtml(item.category)}</td>
+                    <td class="p-2.5 font-medium text-slate-900">${escapeHtml(item.title)}</td>
+                    <td class="p-2.5 font-mono text-xs">${escapeHtml(item.serialNumber)}</td>
+                    <td class="p-2.5 font-medium">${escapeHtml(item.empName)}</td>
+                    <td class="p-2.5">${escapeHtml(item.handover)}</td>
+                    <td class="p-2.5 font-mono text-xs">${escapeHtml(item.acquisition)}</td>
+                    <td class="p-2.5 font-mono text-xs">${escapeHtml(item.invoice)}</td>
+                    <td class="p-2.5"><span class="px-2.5 py-1 rounded-full text-xs font-semibold ${statusClass}">${escapeHtml(item.status)}</span></td>
+                    <td class="p-2.5 text-purple-700 font-medium">${escapeHtml(item.replacedInfo || '-')}</td>
+                    <td class="p-2.5 text-slate-600">${escapeHtml(item.comment)}</td>
+                    <td class="p-2.5 text-slate-600">${escapeHtml(item.datePurchase)}</td>
+                    <td class="p-2.5 text-center sticky right-0 bg-white shadow-[-2px_0_5px_rgba(0,0,0,0.05)]">
+                        <button onclick="editAsset(${originalIndex})" class="text-indigo-600 hover:text-indigo-900 p-1 cursor-pointer"><i class="fa-solid fa-pen-to-square"></i></button>
+                        <button onclick="deleteAsset(${originalIndex})" class="text-rose-600 hover:text-rose-900 p-1 ml-1 cursor-pointer"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function openModal(index = null) {
+            document.getElementById('assetModal').classList.remove('hidden');
+            if (index !== null && index !== undefined && index !== '') {
+                document.getElementById('modalTitleText').innerText = 'Edit Asset Record';
+                document.getElementById('editIndex').value = index;
+                const item = assets[index];
+                document.getElementById('formSystemID').value = item.systemID || '';
+                document.getElementById('formCategory').value = item.category || '';
+                document.getElementById('formTitle').value = item.title || '';
+                document.getElementById('formSerialNumber').value = item.serialNumber || '';
+                document.getElementById('formEmpName').value = item.empName || '';
+                document.getElementById('formHandover').value = item.handover || '';
+                document.getElementById('formAcquisition').value = item.acquisition || '';
+                document.getElementById('formInvoice').value = item.invoice || '';
+                document.getElementById('formStatus').value = item.status || 'Working';
+                document.getElementById('formReplacedInfo').value = item.replacedInfo || '';
+                document.getElementById('formComment').value = item.comment || '';
+                document.getElementById('formDatePurchase').value = item.datePurchase || '';
+            } else {
+                document.getElementById('modalTitleText').innerText = 'Add New Asset';
+                document.getElementById('editIndex').value = '';
+                document.getElementById('assetForm').reset();
+                document.getElementById('formStatus').value = 'Working';
+            }
+        }
+
+        function closeModal() { document.getElementById('assetModal').classList.add('hidden'); }
+
+        async function saveAsset(e) {
+            e.preventDefault();
+            const index = document.getElementById('editIndex').value;
+            const assetObj = {
+                systemID: document.getElementById('formSystemID').value.trim(),
+                category: document.getElementById('formCategory').value.trim(),
+                title: document.getElementById('formTitle').value.trim(),
+                serialNumber: document.getElementById('formSerialNumber').value.trim(),
+                empName: document.getElementById('formEmpName').value.trim(),
+                handover: document.getElementById('formHandover').value.trim(),
+                acquisition: document.getElementById('formAcquisition').value.trim(),
+                invoice: document.getElementById('formInvoice').value.trim(),
+                status: document.getElementById('formStatus').value,
+                replacedInfo: document.getElementById('formReplacedInfo').value.trim(),
+                comment: document.getElementById('formComment').value.trim(),
+                datePurchase: document.getElementById('formDatePurchase').value.trim()
+            };
+
+            if (index !== '' && index !== null && index !== undefined) {
+                assets[parseInt(index, 10)] = assetObj;
+            } else {
+                assets.unshift(assetObj);
+            }
+
+            populateCategoryDropdown();
+            filterAssets();
+            closeModal();
+            await pushToGitHub();
+        }
+
+        function editAsset(index) { openModal(index); }
+
+        async function deleteAsset(index) {
+            if (confirm("Are you sure you want to delete this asset record?")) {
+                assets.splice(index, 1);
+                populateCategoryDropdown();
+                filterAssets();
+                await pushToGitHub();
+            }
+        }
+
+        function exportToExcel() {
+            if (assets.length === 0) return alert("No assets to export.");
+            const exportData = assets.map((item, i) => ({
+                "Sr. No": i + 1, "System ID": item.systemID, "Category": item.category, "Title": item.title, "Serial Number": item.serialNumber, "Emp Name": item.empName, "Asset Handover Form": item.handover, "Product Acquisition Number": item.acquisition, "Invoice Number": item.invoice, "Status": item.status, "Replaced Asset Info": item.replacedInfo, "Comment": item.comment, "Date of Purchase": item.datePurchase
+            }));
+            const worksheet = XLSX.utils.json_to_sheet(exportData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Asset Inventory");
+            XLSX.writeFile(workbook, "IT_Asset_Inventory.xlsx");
+        }
+
+        function handleExcelImport(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async function(evt) {
+                try {
+                    const data = new Uint8Array(evt.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const jsonRows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: "" });
+                    const importedAssets = parseExcelRows(jsonRows);
+                    if (confirm(`Read ${importedAssets.length} assets. Click OK to replace or Cancel to merge.`)) {
+                        assets = importedAssets;
+                    } else {
+                        assets = [...importedAssets, ...assets];
+                    }
+                    populateCategoryDropdown();
+                    filterAssets();
+                    await pushToGitHub();
+                } catch(err) {
+                    alert("Error parsing Excel file.");
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+    </script>
 </body>
 </html>
