@@ -153,6 +153,7 @@
                             <th class="p-2.5 font-bold border-b border-slate-300">Replaced Asset Info</th>
                             <th class="p-2.5 font-bold border-b border-slate-300">Comment</th>
                             <th class="p-2.5 font-bold border-b border-slate-300">Date of Purchase</th>
+                            <th class="p-2.5 font-bold border-b border-slate-300">Date of Update</th>
                             <th class="p-2.5 font-bold border-b border-slate-300 text-center sticky right-0 bg-[#ffd700] z-20 shadow-[-2px_0_5px_rgba(0,0,0,0.05)]">Actions</th>
                         </tr>
                     </thead>
@@ -212,6 +213,12 @@
                 <div class="sm:col-span-2"><label class="block text-xs font-semibold text-slate-600 mb-1">Replaced Asset Info</label><input type="text" id="formReplacedInfo" placeholder="e.g. Replaced by PRPL/MOB/3650" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
                 <div><label class="block text-xs font-semibold text-slate-600 mb-1">Comment</label><input type="text" id="formComment" placeholder="e.g. #N/A or Battery issue" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
                 <div><label class="block text-xs font-semibold text-slate-600 mb-1">Date of Purchase</label><input type="text" id="formDatePurchase" placeholder="e.g. 24-Nov-23" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"></div>
+                
+                <!-- Auto-captured Timestamp Preview -->
+                <div class="sm:col-span-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center justify-between text-xs text-slate-500">
+                    <span><i class="fa-regular fa-clock mr-1.5 text-indigo-500"></i> <strong>Date of Update:</strong> Auto-stamped upon saving</span>
+                    <span id="lastUpdatedPreview" class="font-mono text-slate-700 font-medium"></span>
+                </div>
 
                 <div class="sm:col-span-2 pt-4 flex justify-end gap-3 border-t border-slate-200 mt-2">
                     <button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-200 text-slate-700 text-sm font-medium rounded-lg">Cancel</button>
@@ -228,13 +235,29 @@
         
         // Repo specs
         const REPO_OWNER = "actpistol";
-        const REPO_NAME = "propiactivate";
+        const REPO_NAME = "lexus.github.io";
         const FILE_PATH = "IT_Asset_Inventory.xlsx";
         const GITHUB_API_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FILE_PATH}`;
 
         window.addEventListener('DOMContentLoaded', () => {
             fetchFromGitHub();
         });
+
+        // Helper to format current Date & Time (e.g., 12-Nov-26 11:46 AM)
+        function getFormattedDateTime(dateObj = new Date()) {
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            const month = months[dateObj.getMonth()];
+            const year = String(dateObj.getFullYear()).slice(-2);
+
+            let hours = dateObj.getHours();
+            const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12 || 12;
+            const strHours = String(hours).padStart(2, '0');
+
+            return `${day}-${month}-${year} ${strHours}:${minutes} ${ampm}`;
+        }
 
         function getSavedToken() {
             return localStorage.getItem('gh_pat_token') || '';
@@ -301,6 +324,7 @@
 
         // Auto-commit binary Excel back to GitHub repository
         async function pushToGitHub() {
+            localStorage.setItem('it_assets_inventory', JSON.stringify(assets));
             const token = getSavedToken();
             if (!token) {
                 alert("GitHub Token missing! Please click 'Setup Token' at the top to configure auto-save.");
@@ -326,7 +350,8 @@
                     "Status": item.status,
                     "Replaced Asset Info": item.replacedInfo,
                     "Comment": item.comment,
-                    "Date of Purchase": item.datePurchase
+                    "Date of Purchase": item.datePurchase,
+                    "Date of Update": item.dateUpdate || ""
                 }));
 
                 const worksheet = XLSX.utils.json_to_sheet(exportData);
@@ -371,6 +396,8 @@
                     return "";
                 };
                 const rawDate = getVal(["Date of Purchase", "Date of Purcha", "Purchase Date", "Date"]);
+                const rawUpdateDate = getVal(["Date of Update", "Last Updated", "Updated Date", "Modified Date"]);
+                
                 return {
                     systemID: String(getVal(["System ID", "SystemID", "ID"])),
                     category: String(getVal(["Category", "Cat"])),
@@ -383,7 +410,8 @@
                     status: String(getVal(["Status"])) || "Working",
                     replacedInfo: String(getVal(["Replaced Asset Info", "Replaced Info", "Replacement"])),
                     comment: String(getVal(["Comment", "Remarks", "Note"])) || "#N/A",
-                    datePurchase: !isNaN(rawDate) && String(rawDate).trim() !== "" ? excelSerialToDate(rawDate) : String(rawDate)
+                    datePurchase: !isNaN(rawDate) && String(rawDate).trim() !== "" ? excelSerialToDate(rawDate) : String(rawDate),
+                    dateUpdate: !isNaN(rawUpdateDate) && String(rawUpdateDate).trim() !== "" ? excelSerialToDateTime(rawUpdateDate) : String(rawUpdateDate)
                 };
             });
         }
@@ -397,6 +425,22 @@
             const day = String(dateObj.getUTCDate()).padStart(2, '0');
             const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
             return `${day}-${months[dateObj.getUTCMonth()]}-${String(dateObj.getUTCFullYear()).slice(-2)}`;
+        }
+
+        function excelSerialToDateTime(serial) {
+            if (!serial || isNaN(serial)) return serial;
+            const parsedNum = Number(serial);
+            const utcMillis = Math.round((parsedNum - 25569) * 86400 * 1000);
+            const dateObj = new Date(utcMillis);
+            if (isNaN(dateObj.getTime())) return serial;
+            const day = String(dateObj.getUTCDate()).padStart(2, '0');
+            const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            const year = String(dateObj.getUTCFullYear()).slice(-2);
+            let hours = dateObj.getUTCHours();
+            const minutes = String(dateObj.getUTCMinutes()).padStart(2, '0');
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12 || 12;
+            return `${day}-${months[dateObj.getUTCMonth()]}-${year} ${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
         }
 
         function populateCategoryDropdown() {
@@ -441,7 +485,7 @@
             const tbody = document.getElementById('assetTableBody');
             tbody.innerHTML = '';
             if (dataToRender.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-slate-400">No matching assets found.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="15" class="text-center py-8 text-slate-400">No matching assets found.</td></tr>`;
                 document.getElementById('recordCount').innerText = `Showing 0 entries`;
                 return;
             }
@@ -473,6 +517,7 @@
                     <td class="p-2.5 text-purple-700 font-medium">${escapeHtml(item.replacedInfo || '-')}</td>
                     <td class="p-2.5 text-slate-600">${escapeHtml(item.comment)}</td>
                     <td class="p-2.5 text-slate-600">${escapeHtml(item.datePurchase)}</td>
+                    <td class="p-2.5 font-mono text-xs text-slate-500">${escapeHtml(item.dateUpdate || '-')}</td>
                     <td class="p-2.5 text-center sticky right-0 bg-white shadow-[-2px_0_5px_rgba(0,0,0,0.05)]">
                         <button onclick="editAsset(${originalIndex})" class="text-indigo-600 hover:text-indigo-900 p-1 cursor-pointer"><i class="fa-solid fa-pen-to-square"></i></button>
                         <button onclick="deleteAsset(${originalIndex})" class="text-rose-600 hover:text-rose-900 p-1 ml-1 cursor-pointer"><i class="fa-solid fa-trash"></i></button>
@@ -500,11 +545,13 @@
                 document.getElementById('formReplacedInfo').value = item.replacedInfo || '';
                 document.getElementById('formComment').value = item.comment || '';
                 document.getElementById('formDatePurchase').value = item.datePurchase || '';
+                document.getElementById('lastUpdatedPreview').innerText = item.dateUpdate ? `Last: ${item.dateUpdate}` : 'New timestamp on save';
             } else {
                 document.getElementById('modalTitleText').innerText = 'Add New Asset';
                 document.getElementById('editIndex').value = '';
                 document.getElementById('assetForm').reset();
                 document.getElementById('formStatus').value = 'Working';
+                document.getElementById('lastUpdatedPreview').innerText = getFormattedDateTime();
             }
         }
 
@@ -513,6 +560,8 @@
         async function saveAsset(e) {
             e.preventDefault();
             const index = document.getElementById('editIndex').value;
+            const currentTimestamp = getFormattedDateTime();
+
             const assetObj = {
                 systemID: document.getElementById('formSystemID').value.trim(),
                 category: document.getElementById('formCategory').value.trim(),
@@ -525,7 +574,8 @@
                 status: document.getElementById('formStatus').value,
                 replacedInfo: document.getElementById('formReplacedInfo').value.trim(),
                 comment: document.getElementById('formComment').value.trim(),
-                datePurchase: document.getElementById('formDatePurchase').value.trim()
+                datePurchase: document.getElementById('formDatePurchase').value.trim(),
+                dateUpdate: currentTimestamp
             };
 
             if (index !== '' && index !== null && index !== undefined) {
@@ -554,7 +604,20 @@
         function exportToExcel() {
             if (assets.length === 0) return alert("No assets to export.");
             const exportData = assets.map((item, i) => ({
-                "Sr. No": i + 1, "System ID": item.systemID, "Category": item.category, "Title": item.title, "Serial Number": item.serialNumber, "Emp Name": item.empName, "Asset Handover Form": item.handover, "Product Acquisition Number": item.acquisition, "Invoice Number": item.invoice, "Status": item.status, "Replaced Asset Info": item.replacedInfo, "Comment": item.comment, "Date of Purchase": item.datePurchase
+                "Sr. No": i + 1,
+                "System ID": item.systemID,
+                "Category": item.category,
+                "Title": item.title,
+                "Serial Number": item.serialNumber,
+                "Emp Name": item.empName,
+                "Asset Handover Form": item.handover,
+                "Product Acquisition Number": item.acquisition,
+                "Invoice Number": item.invoice,
+                "Status": item.status,
+                "Replaced Asset Info": item.replacedInfo,
+                "Comment": item.comment,
+                "Date of Purchase": item.datePurchase,
+                "Date of Update": item.dateUpdate || ""
             }));
             const worksheet = XLSX.utils.json_to_sheet(exportData);
             const workbook = XLSX.utils.book_new();
